@@ -13,6 +13,7 @@
  *	Date: 2019-11-20
  */
 
+package hubitat.zwave.commands.basicv1
 
 public class Command {
     public Command getCommand(Short commandClass, Short command, List<Short> payload, Integer version = null) {

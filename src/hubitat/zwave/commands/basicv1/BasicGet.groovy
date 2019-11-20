@@ -13,6 +13,8 @@
  *	Date: 2019-11-20
  */
 
+package hubitat.zwave.commands.basicv1.commands
+
 public class BasicGet extends Command {
     public List<Short>	payload() {
         return []
