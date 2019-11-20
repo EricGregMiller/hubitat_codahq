@@ -78,6 +78,8 @@
  *
  */
 
+package emiller.hubitat.driver
+
 /**
  * Scene values returned with switch events
  */
