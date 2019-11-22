@@ -17,5 +17,5 @@ import hubitat.zwave.Command
  *	Date: 2019-11-20
  */
 
-Public class SwitchMultilevelReport extends Command {
+public class SwitchMultilevelReport extends Command {
 }
