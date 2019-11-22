@@ -13,10 +13,20 @@
  *	Date: 2019-11-20
  */
 
-package hubitat.zwave
+package hubitat.zwave.commands.basicv1
 
-public class Command {
-    public Command getCommand(Short commandClass, Short command, List<Short> payload, Integer version = null) {
-        return null;
+import hubitat.zwave.Command
+
+public class BasicReport extends Command {
+    public Short value() {
+        return null
+    }
+
+    public List<Short>	payload() {
+        return []
+    }
+
+    public String format() {
+        return []
     }
 }

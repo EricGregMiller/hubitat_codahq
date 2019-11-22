@@ -1,3 +1,7 @@
+package hubitat.zwave.commands.switchmultilevelv1
+
+import hubitat.zwave.Command
+
 /**
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -13,10 +17,5 @@
  *	Date: 2019-11-20
  */
 
-package hubitat.zwave
-
-public class Command {
-    public Command getCommand(Short commandClass, Short command, List<Short> payload, Integer version = null) {
-        return null;
-    }
+Public class SwitchMultilevelStopLevelChange extends Command {
 }
