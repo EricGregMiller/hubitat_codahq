@@ -1,3 +1,3 @@
-# hubitat_codahq
+# hubitat_emiller
 
-Hubitat ALL the things
+Hubitat related code modified and created by Eric G. Miller
