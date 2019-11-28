@@ -198,7 +198,7 @@ private def normalColor(colorName) {
 */
 metadata {
   definition(name: "HS-WD200+ Dimmer", namespace: "emiller.hubitat", author: "Eric Miller",
-    importUrl: "https://github.com/EricGregMiller/hubitat_emiller/master/devicestypes/homeseer-hs_wd200plus.groovy") {
+    importUrl: "https://github.com/EricGregMiller/hubitat_emiller/blob/master/drivers/homeseer-hs_wd200plus.groovy") {
     capability "Switch Level"
     capability "Actuator"
     capability "Indicator"
