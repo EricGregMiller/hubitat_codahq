@@ -597,7 +597,7 @@ def setStatusLed(String ledString, String colorName, String blinkChoice) {
   logDebug "ledsToUpdate $ledsToUpdate, size = ${ledsToUpdate.size()}"
   def color = color(colorName)
 
-  if (!state.statusLeds) {
+  if (!state.statusLeds ) {
     state.statusLeds = Collections.nCopies(numLeds(), [color: "Off", blink: "No"])
   }
   ledsToUpdate.each {
