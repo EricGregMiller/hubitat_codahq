@@ -79,6 +79,7 @@ metadata {
         capability "Momentary"
         capability "Battery"
         capability "Health Check"
+        capability "Configuration"
 
         command "resetBattery"
 
@@ -105,6 +106,9 @@ metadata {
 
     preferences {
         input title: "", description: "Z-Wave Garage Door Opener Device Handler v${clientVersion()}", displayDuringSetup: false, type: "paragraph", element: "paragraph"
+        input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
+        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
+        input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
     }
 
     tiles(scale: 2) {
@@ -166,8 +170,30 @@ def installed(){
     }
 }
 
+def setPrefs() {
+    logInfo "setPrefs()"
+    def cmds = []
+
+    if (logEnable || traceLogEnable) {
+        log.warn "Debug logging is on and will be scheduled to turn off automatically in 30 minutes."
+        unschedule()
+        runIn(1800, logsOff)
+    }
+
+    logTrace "cmds: $cmds"
+    return cmds
+}
+
+def logsOff() {
+    logInfo "Turning off debug logging for device ${device.label}"
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
+    device.updateSetting("traceLogEnable", [value: "false", type: "bool"])
+}
+
 def updated(){
-    log.trace "Update called settings: $settings"
+    logDebug "Update called settings: $settings"
+    
+    setPrefs()
 
     // Device-Watch simply pings if no device events received for 32min(checkInterval)
     sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
@@ -201,7 +227,7 @@ private getCommandClassVersions() {
 }
 
 def parse(String description) {
-    log.debug "parse description \"$description\""
+    logDebug "parse description \"$description\""
     sendEvent([name: "codeVersion", value: clientVersion()]) // Save client version for parent app
     sendEvent([name: "dhName", value: "Z-Wave Garage Door Opener with Switch Capability Device Handler"]) // Save DH Name for parent app
 
@@ -224,36 +250,36 @@ def parse(String description) {
             result = zwaveEvent(cmd)
         }
     }
-    log.debug "\"$description\" parsed to ${result.inspect()}"
+    logDebug "\"$description\" parsed to ${result.inspect()}"
     result
 }
 
 def zwaveEvent(hubitat.zwave.commands.securityv1.SecurityMessageEncapsulation cmd) {
-    log.info "zwave SecurityMessageEncapsulation called"
+    logInfo "zwave SecurityMessageEncapsulation called"
     def encapsulatedCommand = cmd.encapsulatedCommand(commandClassVersions)
-    log.debug "encapsulated: $encapsulatedCommand"
+    logDebug "encapsulated: $encapsulatedCommand"
     if (encapsulatedCommand) {
         zwaveEvent(encapsulatedCommand)
     }
 }
 
 def zwaveEvent(hubitat.zwave.commands.securityv1.NetworkKeyVerify cmd) {
-    log.info "zwave NetworkKeyVerify called"
+    logInfo "zwave NetworkKeyVerify called"
     createEvent(name:"secureInclusion", value:"success", descriptionText:"Secure inclusion was successful")
 }
 
 def zwaveEvent(hubitat.zwave.commands.securityv1.SecurityCommandsSupportedReport cmd) {
-    log.info "zwave SecurityCommandsSupportedReport called"
+    logInfo "zwave SecurityCommandsSupportedReport called"
     state.sec = cmd.commandClassSupport.collect { String.format("%02X ", it) }.join()
     if (cmd.commandClassControl) {
         state.secCon = cmd.commandClassControl.collect { String.format("%02X ", it) }.join()
     }
-    log.debug "Security command classes: $state.sec"
+    logDebug "Security command classes: $state.sec"
     createEvent(name:"secureInclusion", value:"success", descriptionText:"$device.displayText is securely included")
 }
 
 def zwaveEvent(BarrierOperatorReport cmd) {
-    log.debug "BarrierOperatorReport $cmd"
+    logDebug "BarrierOperatorReport $cmd"
     def result = []
     def map = [ name: "door" ]
     switch (cmd.barrierState) {
@@ -282,7 +308,7 @@ def zwaveEvent(BarrierOperatorReport cmd) {
 }
 
 def zwaveEvent(hubitat.zwave.commands.notificationv3.NotificationReport cmd) {
-    log.info "zwave NotificationReport called"
+    logInfo "zwave NotificationReport called"
     def result = []
     def map = [:]
     if (cmd.notificationType == 6) {
@@ -383,7 +409,7 @@ def zwaveEvent(hubitat.zwave.commands.notificationv3.NotificationReport cmd) {
 }
 
 def zwaveEvent(hubitat.zwave.commands.batteryv1.BatteryReport cmd) {
-    log.info "zwave Command called"
+    logInfo "zwave BatteryReport called. Battery level: ${cmd.batteryLevel}."
     def map = [ name: "battery", unit: "%" ]
     if (cmd.batteryLevel == 0xFF) {
         map.value = 1
@@ -397,11 +423,11 @@ def zwaveEvent(hubitat.zwave.commands.batteryv1.BatteryReport cmd) {
 }
 
 def zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.ManufacturerSpecificReport cmd) {
-    log.info "zwave ManufacturerSpecificReport called"
+    logInfo "zwave ManufacturerSpecificReport called"
     def result = []
 
     def msr = String.format("%04X-%04X-%04X", cmd.manufacturerId, cmd.productTypeId, cmd.productId)
-    log.debug "msr: $msr"
+    logDebug "msr: $msr"
     updateDataValue("MSR", msr)
 
     result << createEvent(descriptionText: "$device.displayName MSR: $msr", isStateChange: false)
@@ -409,7 +435,7 @@ def zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.ManufacturerSpecifi
 }
 
 def zwaveEvent(hubitat.zwave.commands.versionv1.VersionReport cmd) {
-    log.info "zwave VersionReport called"
+    logInfo "zwave VersionReport called"
     def fw = "${cmd.applicationVersion}.${cmd.applicationSubVersion}"
     updateDataValue("fw", fw)
     def text = "$device.displayName: firmware version: $fw, Z-Wave version: ${cmd.zWaveProtocolVersion}.${cmd.zWaveProtocolSubVersion}"
@@ -417,7 +443,7 @@ def zwaveEvent(hubitat.zwave.commands.versionv1.VersionReport cmd) {
 }
 
 def zwaveEvent(hubitat.zwave.commands.applicationstatusv1.ApplicationBusy cmd) {
-    log.info "zwave ApplicationBusy called"
+    logInfo "zwave ApplicationBusy called"
     def msg = cmd.status == 0 ? "try again later" :
             cmd.status == 1 ? "try again in $cmd.waitTime seconds" :
                     cmd.status == 2 ? "request queued" : "sorry"
@@ -425,39 +451,46 @@ def zwaveEvent(hubitat.zwave.commands.applicationstatusv1.ApplicationBusy cmd) {
 }
 
 def zwaveEvent(hubitat.zwave.commands.applicationstatusv1.ApplicationRejectedRequest cmd) {
-    log.info "zwave ApplicationRejectedRequest called"
+    logInfo "zwave ApplicationRejectedRequest called"
     createEvent(displayed: true, descriptionText: "$device.displayName rejected the last request")
 }
 
 def zwaveEvent(hubitat.zwave.Command cmd) {
-    log.info "zwave Command called"
+    logInfo "zwave Command called"
     createEvent(displayed: false, descriptionText: "$device.displayName: $cmd")
 }
 
+def configure() {
+    logDebug("configure()")
+    cleanup()
+    pollInternal()
+}
+
 def open() {
-    log.info "Open called"
-    secure(zwave.barrierOperatorV1.barrierOperatorSet(requestedBarrierState: BarrierOperatorSet.REQUESTED_BARRIER_STATE_OPEN))
+    logInfo "Open called"
     pollAfter()
+    secure(zwave.barrierOperatorV1.barrierOperatorSet(requestedBarrierState: BarrierOperatorSet.REQUESTED_BARRIER_STATE_OPEN))
 }
 
 def close() {
-    log.info "Close called"
-    secure(zwave.barrierOperatorV1.barrierOperatorSet(requestedBarrierState: BarrierOperatorSet.REQUESTED_BARRIER_STATE_CLOSE))
+    logInfo "Close called"
     pollAfter()
+    secure(zwave.barrierOperatorV1.barrierOperatorSet(requestedBarrierState: BarrierOperatorSet.REQUESTED_BARRIER_STATE_CLOSE))
 }
 
 def refresh() {
-    log.info "Refresh called"
-    pollPeriodically()
+    logInfo "Refresh called"
+    initPollPeriodically()
+    pollInternal()
 }
 
 def poll() {
-    pollPeriodically()
+    pollInternal()
 }
 
 def pollInternal() {
-    log.info "Poll internal called"
-    log.debug "Device MSR ${state.MSR}"
+    logInfo "Poll internal called"
+    logDebug "Device MSR ${state.MSR}"
 
     // Get the latest status
     delayBetween([
@@ -469,17 +502,22 @@ def pollInternal() {
 
 def pollAfter() {
     unschedule()
-    runIn(20, pollPeriodically())
+    runIn(30, pollPeriodically)
+}
+
+def initPollPeriodically() {
+    unschedule()
+    runIn(60, pollPeriodically)
 }
 
 def pollPeriodically() {
     unschedule()
+    // runIn(60, pollPeriodically)
     pollInternal()
-    runIn(60, pollPeriodically())
 }
 
 def resetBattery() {
-    log.debug "Resetting low battery notifications"
+    logDebug "Resetting low battery notifications"
     sendEvent(name: "lowBattery", value: "Sensor Battery OK", descriptionText: "$device.displayName door sensor has a OK battery") // Reset Battery Notification
     sendEvent(name: "battery", value: 100, unit: "%") // Reset battery level
 }
@@ -493,37 +531,55 @@ private secureSequence(commands, delay=200) {
 }
 
 def on() {
-    log.info "On called"
+    logInfo "On called"
     open()
 }
 
 def off() {
-    log.info "Off called"
+    logInfo "Off called"
     close()
 }
 
 def push() {
-    log.info "Push called"
+    logInfo "Push called"
     def latest = device.latestValue("door");
-    log.debug "Garage door push button, current state $latest"
+    logDebug "Garage door push button, current state $latest"
 
     switch (latest) {
         case "open":
-            log.debug "Closing garage door"
+            logDebug "Closing garage door"
             close()
             sendEvent(name: "momentary", value: "pushed", isStateChange: true)
             break
 
         case "closed":
-            log.debug "Opening garage door"
+            logDebug "Opening garage door"
             open()
             sendEvent(name: "momentary", value: "pushed", isStateChange: true)
             break
 
         default:
-            log.debug "Can't change state of door, unknown state $latest"
+            logDebug "Can't change state of door, unknown state $latest"
             break
     }
+}
+
+def cleanup() {
+    logDebug "cleanup()"
+    unschedule()
+    state.clear()
+}
+
+private logInfo(msg) {
+    if (descriptionTextEnable) log.info msg
+}
+
+def logDebug(msg) {
+    if (logEnable) log.debug msg
+}
+
+def logTrace(msg) {
+    if (traceLogEnable) log.trace msg
 }
 
 // THIS IS THE END OF THE FILE
