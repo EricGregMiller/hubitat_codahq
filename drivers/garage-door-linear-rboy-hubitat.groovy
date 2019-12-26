@@ -83,6 +83,17 @@ metadata {
 
         command "resetBattery"
 
+        /*****************************************
+         * Taken from basic zwave tool
+         *****************************************/
+        command "getAssociationReport"
+        command "getVersionReport"
+        command "getCommandClassReport"
+        command "getParameterReport", [[name:"parameterNumber",type:"NUMBER", description:"Parameter Number (omit for a complete listing of parameters that have been set)", constraints:["NUMBER"]]]
+        /*****************************************
+         * End of code taken from basic zwave tool
+         *****************************************/
+
         attribute "lowBattery", "string"
         attribute "codeVersion", "string"
         attribute "dhName", "string"
@@ -158,7 +169,6 @@ metadata {
 }
 
 import hubitat.zwave.commands.barrieroperatorv1.*
-
 def installed(){
     // Device-Watch simply pings if no device events received for 32min(checkInterval)
     sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
@@ -217,12 +227,58 @@ def ping() {
  */
 private getCommandClassVersions() {
     [
-            0x63: 1,  // User Code
-            0x71: 3,  // Notification
+            0x63: 1,  // User Code: Not listed by VersionCommandClassReport
+            0x71: 3,  // Notification: Not listed by VersionCommandClassReport
             0x72: 2,  // Manufacturer Specific
-            0x80: 1,  // Battery
-            0x85: 2,  // Association
+            0x73: 1,  // Powerlevel: used to setup and test zwave network.
+            0x80: 1,  // Battery: Not listed by VersionCommandClassReport
+            0x85: 2,  // Association: Not listed by VersionCommandClassReport
             0x98: 1   // Security 0
+    ]
+}
+
+/**
+ * Command classes returned by VersionCommandClassReport
+ * 90 (5A) v1 Device Reset Locally
+ * 94 (5E) v2 ?? Not listed
+ * 114 (72) v2 Manufacturer Specific
+ * 115 (73) v1 Powerlevel v1
+ * 152 (98) v1 Security
+ */
+
+private getAccesControlNotifications() {
+    [
+        0x40: [true: "performing initialization process", false: "initialization process complete"],
+        0x41: "door operation force has been exceeded",
+        0x42: "motor has exceeded operational time limit",
+        0x43: "has exceeded physical mechanical limits",
+        0x44: "unable to perform requested operation (UL requirement)",
+        0x45: "remote operation disabled (UL requirement)",
+        0x46: "failed to perform operation due to device malfunction",
+        0x47: [true: "vacation mode enabled", false: "vacation mode disabled"],
+        0x48: [true: "safety beam obstructed", false: "safety beam obstruction cleared"],
+        // 0x49: [true: "door sensor ${cmd.eventParameter[0]} not detected", false: "door sensor not detected"],
+        // 0x4A: [true: "door sensor ${cmd.eventParameter[0]} has a low battery", false: "door sensor has a low battery"],
+        0x4B: "detected a short in wall station wires",
+        0x4C: "is associated with non-Z-Wave remote control"
+    ]
+}
+
+private getBurglarNotifications() {
+    [
+            0x40: [true: "performing initialization process", false: "initialization process complete"],
+            0x41: "door operation force has been exceeded",
+            0x42: "motor has exceeded operational time limit",
+            0x43: "has exceeded physical mechanical limits",
+            0x44: "unable to perform requested operation (UL requirement)",
+            0x45: "remote operation disabled (UL requirement)",
+            0x46: "failed to perform operation due to device malfunction",
+            0x47: [true: "vacation mode enabled", false: "vacation mode disabled"],
+            0x48: [true: "safety beam obstructed", false: "safety beam obstruction cleared"],
+            0x49: [true: "door sensor ${cmd.eventParameter[0]} not detected", false: "door sensor not detected"],
+            0x4A: [true: "door sensor ${cmd.eventParameter[0]} has a low battery", false: "door sensor has a low battery"],
+            0x4B: "detected a short in wall station wires",
+            0x4C: "is associated with non-Z-Wave remote control"
     ]
 }
 
@@ -234,7 +290,7 @@ def parse(String description) {
     def result = null
     if (description.startsWith("Err")) {
         if (state.sec) {
-            result = createEvent(descriptionText:description, displayed:false)
+            result = createEvent(descriptionText: description, displayed: false)
         } else {
             result = createEvent(
                     descriptionText: "This device failed to complete the network security key exchange. If you are unable to control it via SmartThings, you must remove it from your network and add it again.",
@@ -312,6 +368,7 @@ def zwaveEvent(hubitat.zwave.commands.notificationv3.NotificationReport cmd) {
     def result = []
     def map = [:]
     if (cmd.notificationType == 6) {
+        // 6 is NOTIFICATION_TYPE_ACCESS_CONTROL
         map.displayed = true
         switch(cmd.event) {
             case 0x40:
@@ -381,6 +438,7 @@ def zwaveEvent(hubitat.zwave.commands.notificationv3.NotificationReport cmd) {
                 break
         }
     } else if (cmd.notificationType == 7) {
+        // 7 is NOTIFICATION_TYPE_BURGLAR
         switch (cmd.event) {
             case 1:
             case 2:
@@ -422,6 +480,12 @@ def zwaveEvent(hubitat.zwave.commands.batteryv1.BatteryReport cmd) {
     createEvent(map)
 }
 
+def zwaveEvent(hubitat.zwave.commands.powerlevelv1.PowerlevelReport cmd) {
+    logInfo "zwave PowerlevelReport called. Power level: ${cmd.powerLevel}."
+    state.lastPower = new Date().time
+    createEvent(map)
+}
+
 def zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.ManufacturerSpecificReport cmd) {
     logInfo "zwave ManufacturerSpecificReport called"
     def result = []
@@ -429,6 +493,7 @@ def zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.ManufacturerSpecifi
     def msr = String.format("%04X-%04X-%04X", cmd.manufacturerId, cmd.productTypeId, cmd.productId)
     logDebug "msr: $msr"
     updateDataValue("MSR", msr)
+    state.MSR = msr
 
     result << createEvent(descriptionText: "$device.displayName MSR: $msr", isStateChange: false)
     result
@@ -480,7 +545,7 @@ def close() {
 
 def refresh() {
     logInfo "Refresh called"
-    initPollPeriodically()
+    // initPollPeriodically()
     pollInternal()
 }
 
@@ -491,13 +556,17 @@ def poll() {
 def pollInternal() {
     logInfo "Poll internal called"
     logDebug "Device MSR ${state.MSR}"
+    state.lastPoll = new Date().format( 'yyyy-MM-dd HH:mm:ss' )
+    logDebug "lastPoll: ${state.lastPoll}"
 
     // Get the latest status
-    delayBetween([
-            secure(zwave.barrierOperatorV1.barrierOperatorGet()),
-            zwave.batteryV1.batteryGet().format(), // Try to get battery level
-            state.MSR ? null : zwave.manufacturerSpecificV2.manufacturerSpecificGet().format() // Get the MSR if it doesnt' exist
-    ], 2000)
+    def cmds = [secure(zwave.barrierOperatorV1.barrierOperatorGet())]
+    // cmds << secure(zwave.batteryV1.batteryGet()), // Try to get battery level
+    // cmds << secure(zwave.powerlevelV1.powerlevelGet()), // Try to get power level
+    if (!state.MSR) {
+        cmds << zwave.manufacturerSpecificV2.manufacturerSpecificGet().format()
+    }
+    delayBetween(cmds, 2000)
 }
 
 def pollAfter() {
@@ -568,6 +637,7 @@ def cleanup() {
     logDebug "cleanup()"
     unschedule()
     state.clear()
+    state.lastPoll = "none"
 }
 
 private logInfo(msg) {
@@ -581,5 +651,86 @@ def logDebug(msg) {
 def logTrace(msg) {
     if (traceLogEnable) log.trace msg
 }
+
+/*****************************************
+ * Taken from basic zwave tool
+ *****************************************/
+
+import groovy.transform.Field
+
+@Field Map zwLibType = [
+        0:"N/A",1:"Static Controller",2:"Controller",3:"Enhanced Slave",4:"Slave",5:"Installer",
+        6:"Routing Slave",7:"Bridge Controller",8:"Device Under Test (DUT)",9:"N/A",10:"AV Remote",11:"AV Device"
+]
+
+def zwaveEvent1(hubitat.zwave.commands.versionv1.VersionReport cmd) {
+    log.info "VersionReport- zWaveLibraryType:${zwLibType.find{ it.key == cmd.zWaveLibraryType }.value}"
+    log.info "VersionReport- zWaveProtocolVersion:${cmd.zWaveProtocolVersion}.${cmd.zWaveProtocolSubVersion}"
+    log.info "VersionReport- applicationVersion:${cmd.applicationVersion}.${cmd.applicationSubVersion}"
+}
+
+def zwaveEvent(hubitat.zwave.commands.associationv1.AssociationReport cmd) {
+    log.info "AssociationReport- groupingIdentifier:${cmd.groupingIdentifier}, maxNodesSupported:${cmd.maxNodesSupported}, nodes:${cmd.nodeId}"
+}
+
+def zwaveEvent(hubitat.zwave.commands.configurationv1.ConfigurationReport cmd) {
+    log.info "ConfigurationReport- parameterNumber:${cmd.parameterNumber}, size:${cmd.size}, value:${cmd.scaledConfigurationValue}"
+}
+
+def zwaveEvent(hubitat.zwave.commands.versionv1.VersionCommandClassReport cmd) {
+    log.info "CommandClassReport- class:${ "0x${intToHexStr(cmd.requestedCommandClass)}" }, version:${cmd.commandClassVersion}"
+}
+
+def getVersionReport(){
+    logInfo "getVersionReport"
+    return secureCmd(zwave.versionV1.versionGet())
+}
+
+def getAssociationReport(){
+    logInfo "getAssociationReport"
+    def cmds = []
+    1.upto(5, {
+        cmds.add(secureCmd(zwave.associationV1.associationGet(groupingIdentifier: it)))
+    })
+    return cmds
+}
+
+def getParameterReport(param = null){
+    logInfo "getParameterReport"
+    def cmds = []
+    if (param) {
+        cmds = [secureCmd(zwave.configurationV1.configurationGet(parameterNumber: param))]
+    } else {
+        0.upto(255, {
+            cmds.add(secureCmd(zwave.configurationV1.configurationGet(parameterNumber: it)))
+        })
+    }
+    return cmds
+}
+
+def getCommandClassReport(){
+    logInfo "getCommandClassReport"
+    def cmds = []
+    def ic = getDataValue("inClusters").split(",").collect{ hexStrToUnsignedInt(it) }
+    ic.each {
+        if (it) cmds.add(secureCmd(zwave.versionV1.versionCommandClassGet(requestedCommandClass:it)))
+    }
+    return delayBetween(cmds,500)
+}
+
+private secureCmd(cmd) {
+    secure(cmd)
+}
+private secureCmd1(cmd) {
+    if (getDataValue("zwaveSecurePairingComplete") == "true") {
+        return zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd).format()
+    } else {
+        return cmd.format()
+    }
+}
+
+/*****************************************
+ * End of code taken from basic zwave tool
+ *****************************************/
 
 // THIS IS THE END OF THE FILE
