@@ -97,6 +97,7 @@ metadata {
         attribute "lowBattery", "string"
         attribute "codeVersion", "string"
         attribute "dhName", "string"
+        attribute "lastPoll", "string"
 
         fingerprint deviceId: "0x4007", inClusters: "0x98"
         fingerprint deviceId: "0x4006", inClusters: "0x98"
@@ -559,8 +560,12 @@ def pollInternal() {
     state.lastPoll = new Date().format( 'yyyy-MM-dd HH:mm:ss' )
     logDebug "lastPoll: ${state.lastPoll}"
 
+    // Save last time device was polled
+    sendEvent([name: "lastPoll", value: state.lastPoll])
+
     // Get the latest status
-    def cmds = [secure(zwave.barrierOperatorV1.barrierOperatorGet())]
+    def cmds = []
+    cmds << secure(zwave.barrierOperatorV1.barrierOperatorGet())
     // cmds << secure(zwave.batteryV1.batteryGet()), // Try to get battery level
     // cmds << secure(zwave.powerlevelV1.powerlevelGet()), // Try to get power level
     if (!state.MSR) {
